@@ -484,8 +484,10 @@ entering:
 			case termbox.KeyEsc:
 				return "", errors.New("cancelled")
 			case termbox.KeyBackspace, termbox.KeyBackspace2, termbox.KeyDelete:
-				name = name[:len(name)-2]
-				draw()
+				if name != "" {
+					name = name[:len(name)-1]
+					draw()
+				}
 				continue entering
 			case termbox.KeyEnter:
 				return name, nil
