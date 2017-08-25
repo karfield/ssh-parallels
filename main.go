@@ -12,9 +12,12 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	termbox "github.com/nsf/termbox-go"
 )
+
+var TIMEOUT = 2 * time.Second
 
 var helpText = `ssh-parallels [options]
 --port, -p
@@ -126,7 +129,51 @@ var (
 
 func (vm *VM) exec(args ...string) ([]byte, error) {
 	args = append([]string{"exec", vm.ID}, args...)
-	return exec.Command("prlctl", args...).Output()
+	cmd := exec.Command("prlctl", args...)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, err
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return nil, err
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+
+	var (
+		stdoutText bytes.Buffer
+		stderrText bytes.Buffer
+	)
+	done := make(chan error)
+	go func() {
+		if _, err := stdoutText.ReadFrom(stdout); err != nil {
+			done <- err
+			return
+		}
+		cmd.Wait()
+		done <- nil
+	}()
+	go func() {
+		if _, err := stderrText.ReadFrom(stderr); err != nil {
+			done <- err
+			return
+		}
+		cmd.Wait()
+		done <- nil
+	}()
+
+	select {
+	case <-time.After(TIMEOUT):
+		if err := cmd.Process.Kill(); err != nil {
+			return nil, err
+		} else {
+			return nil, fmt.Errorf("timeout")
+		}
+	case err := <-done:
+		return stdoutText.Bytes(), err
+	}
 }
 
 type LinuxIpAddr struct {
